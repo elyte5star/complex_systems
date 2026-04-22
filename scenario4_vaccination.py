@@ -3,14 +3,17 @@ from pylab import *
 
 # ══════════════════════════════════════════════════════════════════
 # SCENARIO 4: Vaccination Campaign (40% initial immunity)
-# 40% of population starts in Recovered (immune) state
-# Tests the herd immunity threshold
+# 40% of population starts in Recovered (immune) state at t=0
+# to represent partial population immunity from vaccination and/or
+# prior infection (Pooley et al. 2023; Moore et al. 2025;
+# Song et al. 2024). Mobility (epsilon = 0.03) and beta = 0.5 are
+# unchanged from baseline so the effect of immunity can be isolated.
 # ══════════════════════════════════════════════════════════════════
 
 n     = 500
-v     = 0.01
+v     = 0.03        # same mobility as baseline (epsilon = 0.03)
 f     = 0.01
-r     = 0.02
+r     = 0.05
 k     = int(1/r)+1
 
 p_inf = 0.5         # same as baseline

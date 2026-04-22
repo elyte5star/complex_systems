@@ -1,0 +1,10 @@
+# Reference docs kept locally but not checked in
+README_PyCX.md
+pygad-readthedocs-io-en-latest.pdf
+Project-text-2026.pdf
+ITI42622 (1).pdf
+
+# Claude Code workspace
+.claude/
+__pycache__/pycxsimulator.cpython-313.pyc
+__pycache__/scenario6_ga_optimization.cpython-313.pyc

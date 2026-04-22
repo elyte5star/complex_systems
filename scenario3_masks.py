@@ -3,14 +3,16 @@ from pylab import *
 
 # ══════════════════════════════════════════════════════════════════
 # SCENARIO 3: High Mask Compliance (Reduced beta)
-# Same mobility as baseline, but p_inf reduced from 0.5 to 0.1
-# Masks lower the per-contact transmission probability
+# Same mobility as baseline (epsilon = 0.03), beta reduced from 0.5
+# to 0.1 to reflect substantial per-contact transmission reduction
+# from widespread mask use (Chu et al. 2020; Li et al. 2021;
+# MacIntyre & Chughtai 2020).
 # ══════════════════════════════════════════════════════════════════
 
 n     = 500
-v     = 0.01        # same speed as baseline
+v     = 0.03        # same mobility as baseline (epsilon = 0.03)
 f     = 0.01
-r     = 0.02
+r     = 0.05
 k     = int(1/r)+1
 
 p_inf = 0.1         # REDUCED infection probability (masks)

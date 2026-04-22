@@ -2,15 +2,17 @@ import pycxsimulator
 from pylab import *
 
 # ══════════════════════════════════════════════════════════════════
-# SCENARIO 2: Strict Lockdown (Reduced Mobility)
-# Movement speed reduced from 0.01 to 0.002
-# Fewer contact events -> slower spread
+# SCENARIO 2: Strict Lockdown with Reduced Mobility
+# epsilon reduced from 0.03 to 0.01 (literature-informed: 60–80% drop
+# in travel activity under lockdown; Hadjidemetriou et al. 2020,
+# Vinceti et al. 2020, Shi et al. 2025)
+# beta unchanged at 0.5
 # ══════════════════════════════════════════════════════════════════
 
 n     = 500
-v     = 0.002       # REDUCED speed (lockdown - stay at home)
+v     = 0.01        # REDUCED speed (lockdown)
 f     = 0.01
-r     = 0.02
+r     = 0.05
 k     = int(1/r)+1
 
 p_inf = 0.5         # same transmission probability

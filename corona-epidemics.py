@@ -17,6 +17,7 @@ class agent:
         self.v = rand(2) - array([0.5, 0.5])
         self.v *= v / norm(self.v)
         self.s = 0
+        print(self.x)
 
     def move(self):
         self.x += self.v

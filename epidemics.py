@@ -29,13 +29,12 @@ class Agent:
 
 class SimulationParams(BaseModel):
     n_agents: int = 1000  # number of agents
-    agent_speed: float = 0.01  # speed of agent movement
     repulsion_force: float = 0.01  # repulsion force constant
-    perception_range: float = 0.05  # perception range
+    transmission_radius: float = 0.05  # transmission radius
 
     @computed_field
     def bins_per_dimension(self) -> int:
-        return int(1 / self.perception_range) + 1
+        return int(1 / self.transmission_radius) + 1
 
 
 class DiseaseParams(BaseModel):
@@ -75,7 +74,7 @@ class SocialDistancingScenarioParams(BaseModel):
     social_distancing_effectiveness: float = 0.5  # effectiveness of social distancing
 
 
-class vaccinationScenarioParams(BaseModel):
+class VaccinationScenarioParams(BaseModel):
     vaccination_rate: float = 0.01  # percentage of population vaccinated per day
     vaccine_efficacy: float = 0.95  # efficacy of the vaccine
 
@@ -87,8 +86,8 @@ class MaskWearingScenarioParams(BaseModel):
 
 
 class AgentBehavior(BaseModel):
-    position: np.ndarray
-    velocity: float
+    position_coord: tuple[int, int]
+    mobility_epsilon: float
     health_state: AgentHealthState
 
 

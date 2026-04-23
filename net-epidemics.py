@@ -6,6 +6,7 @@
 # sayama@binghamton.edu
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("qt5agg")
 

@@ -1,5 +1,7 @@
 import pycxsimulator
 from pylab import *
+import numpy as np
+
 
 n = 1000  # number of agents
 v = 0.01  # speed of agent movement
@@ -93,8 +95,8 @@ def update():
                     a.a += f * (a.x - b.x) / d
                     if a.s == 0 and b.s == 1:
                         if random() < p_inf:
-                            a.ns = 1
-
+                       a.ns = 1
+    print(rng.random(2) - np.array([0.5, 0.5]))
     for a in agents:
         a.v += a.a
         a.v *= v / norm(a.v)

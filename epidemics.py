@@ -1,9 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, computed_field, ConfigDict
+from enum import Enum
 
 
-class Agent:
+class Agent_:
     def __init__(self):
         rng = np.random.default_rng()
         self.x = rng.random(2)
@@ -43,11 +44,11 @@ class DiseaseParams(BaseModel):
     p_exp: float = 1 / 5.2  # incubation period ≈ 5.2 days
 
 
-class AgentHealthState:
-    SUSCEPTIBLE = 0
-    INFECTED = 1
-    RECOVERED = 2
-    EXPOSED = 3
+class AgentHealthState(str, Enum):
+    SUSCEPTIBLE = "cyan"
+    INFECTED = "orange"
+    RECOVERED = "green"
+    EXPOSED = "yellow"
 
 
 class TunableHyperParams(BaseModel):
@@ -58,16 +59,21 @@ class TunableHyperParams(BaseModel):
     recovery_probabilities: list[float] = [0.01, 0.1]
 
 
-class SimulationState(BaseModel):
-    agents: list[Agent]
-    Scount: list[int]
-    Icount: list[int]
-    Rcount: list[int]
+# class SimulationState(BaseModel):
+#     agents: list[Agent]
+#     Scount: list[int]
+#     Icount: list[int]
+#     Rcount: list[int]
 
 
 class LockDownScenarioParams(BaseModel):
     lock_down_duration: int = 10  # duration of lock down in days
     lock_down_effectiveness: float = 0.8  # effectiveness of lock down
+    mobility_epsilon: float = 0.01
+
+
+class BaseLineScenerio(BaseModel):
+    mobility_epsilon: float = 0.03
 
 
 class SocialDistancingScenarioParams(BaseModel):
@@ -86,9 +92,26 @@ class MaskWearingScenarioParams(BaseModel):
 
 
 class AgentBehavior(BaseModel):
-    position_coord: tuple[int, int]
+    position_coord: np.ndarray
+    velocity_vector: np.ndarray
     mobility_epsilon: float
     health_state: AgentHealthState
+
+    # def model_post_init__(self):
+    #     rng = np.random.default_rng()
+    #     self.position_coord = rng.random(2)
+    #     self.velocity_vector = rng.random(2) - np.array([0.5, 0.5])
+    #     self.velocity_vector *= self.mobility_epsilon / np.linalg.norm(
+    #         self.velocity_vector
+    #     )
+    #     self.health_state = AgentHealthState.SUSCEPTIBLE
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
+            np.ndarray: lambda v: v.tolist(),
+        },
+    )
 
 
 class EpidemicSimulation:

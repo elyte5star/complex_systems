@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pydantic import BaseModel, computed_field, ConfigDict
 from enum import Enum
+from math import floor
 
 rng = np.random.default_rng()
 
@@ -96,34 +97,6 @@ class Agent(AgentBehavior):
             self.velocity_vector[1] *= -1
 
 
-a = Agent()
-print(a.velocity_vector[0])
-
-
-class Agent_:
-    def __init__(self):
-        rng = np.random.default_rng()
-        self.x = rng.random(2)
-        self.v = rng.random(2) - np.array([0.5, 0.5])
-        self.v *= self.v / np.linalg.norm(self.v)
-        self.s = 0
-
-    def move(self):
-        self.x += self.v
-        if self.x[0] < 0:
-            self.x[0] = 0
-            self.v[0] *= -1
-        if self.x[1] < 0:
-            self.x[1] = 0
-            self.v[1] *= -1
-        if self.x[0] > 1:
-            self.x[0] = 1
-            self.v[0] *= -1
-        if self.x[1] > 1:
-            self.x[1] = 1
-            self.v[1] *= -1
-
-
 class SimulationParams(BaseModel):
     n_agents: int = 1000  # number of agents
     repulsion_force: float = 0.01  # repulsion force constant
@@ -135,12 +108,22 @@ class SimulationParams(BaseModel):
 
 
 class EpidemicSimulation:
-    def __init__(self, sim_params: dict):
-        n_agents = sim_params.get("n_agents")
-        self.agents = [Agent() for _ in range(n_agents)]
-        self.agents[0].s = 1  # Infect the first agent
-        self.Scount = [n_agents - 1]
-        self.Icount = [1]
+
+    def __init__(
+        self,
+        n_infected: int,
+        sim_params: SimulationParams,
+        agent: Agent,
+    ):
+        self.sim_params = sim_params
+        self.n_infected = n_infected
+        self.agent = agent
+        self.agents: list[Agent] = [Agent() for _ in range(sim_params.n_agents)]
+        for i in range(self.n_infected):
+            self.agents[i].health_state = AgentHealthState.INFECTED
+        self.Scount = [sim_params.n_agents - self.n_infected]
+        self.Ecount = [0]
+        self.Icount = [self.n_infected]
         self.Rcount = [0]
 
     def observe(self):
@@ -162,6 +145,11 @@ class EpidemicSimulation:
         plt.plot(self.Rcount, label="Recovered")
         plt.legend()
         plt.tight_layout()
+
+    def agent_grid_cell(self, agent: Agent):
+        return int(
+            floor(agent.position_coord[0] / self.sim_params.transmission_radius)
+        ), int(floor(agent.position_coord[1] / self.sim_params.transmission_radius))
 
 
 # class AgentBehavior(BaseModel):

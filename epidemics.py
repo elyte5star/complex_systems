@@ -3,6 +3,102 @@ import numpy as np
 from pydantic import BaseModel, computed_field, ConfigDict
 from enum import Enum
 
+rng = np.random.default_rng()
+
+
+class DiseaseParams(BaseModel):
+    p_inf: float = 0.5  # infection probability beta
+    p_rec: float = 0.1  # recovery probability gamma
+    p_exp: float = 0.192  # 1 / 5.2  incubation period ≈ 5.2 days sigma
+
+
+class AgentHealthState(str, Enum):
+    SUSCEPTIBLE = "cyan"
+    INFECTED = "orange"
+    RECOVERED = "green"
+    EXPOSED = "yellow"
+
+
+class TunableHyperParams(BaseModel):
+    agent_speeds: list[float] = [0.001, 0.05]
+    repulsion_forces: list[float] = [0.001, 0.1]
+    perception_ranges: list[float] = [0.01, 0.05]
+    infection_probabilities: list[float] = [0.1, 0.9]
+    recovery_probabilities: list[float] = [0.01, 0.1]
+
+
+# class SimulationState(BaseModel):
+#     agents: list[Agent]
+#     Scount: list[int]
+#     Icount: list[int]
+#     Rcount: list[int]
+
+
+class BaseLineScenerio(DiseaseParams):
+    mobility_epsilon: float = 0.03
+
+
+class LockDownScenarioParams(BaseLineScenerio):
+    lock_down_duration: int = 10  # duration of lock down in days
+    lock_down_effectiveness: float = 0.8  # effectiveness of lock down
+    mobility_epsilon: float = 0.01
+
+
+class SocialDistancingScenarioParams(BaseModel):
+    social_distancing_effectiveness: float = 0.5  # effectiveness of social distancing
+
+
+class VaccinationScenarioParams(BaseLineScenerio):
+    vaccination_rate: float = 0.01  # percentage of population vaccinated per day
+    vaccine_efficacy: float = 0.95  # efficacy of the vaccine
+
+
+class MaskWearingScenarioParams(BaseLineScenerio):
+    mask_wearing_effectiveness: float = (
+        0.5  # effectiveness of mask wearing in reducing transmission
+    )
+    p_inf: float = 0.1
+
+
+class AgentBehavior(BaseModel):
+    position_coord: np.ndarray = rng.random(2)
+    mobility_epsilon: float = 0.3
+    health_state: AgentHealthState = AgentHealthState.SUSCEPTIBLE
+
+    @computed_field
+    def velocity_vector(self) -> np.ndarray:
+        temp = rng.random(2) - np.array([0.5, 0.5])
+        return temp * self.mobility_epsilon / np.linalg.norm(temp)
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_encoders={
+            np.ndarray: lambda v: v.tolist(),
+        },
+    )
+
+
+class Agent(AgentBehavior):
+
+    def move(self):
+        self.position_coord += self.velocity_vector
+        if self.position_coord[0] < 0:
+            self.position_coord[0] = 0
+            self.velocity_vector[0] *= -1
+        if self.position_coord[1] < 0:
+            self.position_coord[1] = 0
+            self.velocity_vector[1] *= -1
+        if self.position_coord[0] > 0:
+            self.position_coord[0] = 0
+            self.velocity_vector[0] *= -1
+        if self.position_coord[1] > 0:
+            self.position_coord[1] = 0
+            self.velocity_vector[1] *= -1
+
+
+a = Agent()
+print(a.velocity_vector[0])
+
 
 class Agent_:
     def __init__(self):
@@ -36,82 +132,6 @@ class SimulationParams(BaseModel):
     @computed_field
     def bins_per_dimension(self) -> int:
         return int(1 / self.transmission_radius) + 1
-
-
-class DiseaseParams(BaseModel):
-    p_inf: float = 0.5  # infection probability
-    p_rec: float = 0.1  # recovery probability
-    p_exp: float = 1 / 5.2  # incubation period ≈ 5.2 days
-
-
-class AgentHealthState(str, Enum):
-    SUSCEPTIBLE = "cyan"
-    INFECTED = "orange"
-    RECOVERED = "green"
-    EXPOSED = "yellow"
-
-
-class TunableHyperParams(BaseModel):
-    agent_speeds: list[float] = [0.001, 0.05]
-    repulsion_forces: list[float] = [0.001, 0.1]
-    perception_ranges: list[float] = [0.01, 0.05]
-    infection_probabilities: list[float] = [0.1, 0.9]
-    recovery_probabilities: list[float] = [0.01, 0.1]
-
-
-# class SimulationState(BaseModel):
-#     agents: list[Agent]
-#     Scount: list[int]
-#     Icount: list[int]
-#     Rcount: list[int]
-
-
-class LockDownScenarioParams(BaseModel):
-    lock_down_duration: int = 10  # duration of lock down in days
-    lock_down_effectiveness: float = 0.8  # effectiveness of lock down
-    mobility_epsilon: float = 0.01
-
-
-class BaseLineScenerio(BaseModel):
-    mobility_epsilon: float = 0.03
-
-
-class SocialDistancingScenarioParams(BaseModel):
-    social_distancing_effectiveness: float = 0.5  # effectiveness of social distancing
-
-
-class VaccinationScenarioParams(BaseModel):
-    vaccination_rate: float = 0.01  # percentage of population vaccinated per day
-    vaccine_efficacy: float = 0.95  # efficacy of the vaccine
-
-
-class MaskWearingScenarioParams(BaseModel):
-    mask_wearing_effectiveness: float = (
-        0.5  # effectiveness of mask wearing in reducing transmission
-    )
-
-
-class AgentBehavior(BaseModel):
-    position_coord: np.ndarray
-    velocity_vector: np.ndarray
-    mobility_epsilon: float
-    health_state: AgentHealthState
-
-    # def model_post_init__(self):
-    #     rng = np.random.default_rng()
-    #     self.position_coord = rng.random(2)
-    #     self.velocity_vector = rng.random(2) - np.array([0.5, 0.5])
-    #     self.velocity_vector *= self.mobility_epsilon / np.linalg.norm(
-    #         self.velocity_vector
-    #     )
-    #     self.health_state = AgentHealthState.SUSCEPTIBLE
-
-    model_config = ConfigDict(
-        arbitrary_types_allowed=True,
-        json_encoders={
-            np.ndarray: lambda v: v.tolist(),
-        },
-    )
 
 
 class EpidemicSimulation:

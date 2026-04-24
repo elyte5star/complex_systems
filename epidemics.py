@@ -89,11 +89,11 @@ class Agent(AgentBehavior):
         if self.position_coord[1] < 0:
             self.position_coord[1] = 0
             self.velocity_vector[1] *= -1
-        if self.position_coord[0] > 0:
-            self.position_coord[0] = 0
+        if self.position_coord[0] > 1:
+            self.position_coord[0] = 1
             self.velocity_vector[0] *= -1
-        if self.position_coord[1] > 0:
-            self.position_coord[1] = 0
+        if self.position_coord[1] > 1:
+            self.position_coord[1] = 1
             self.velocity_vector[1] *= -1
 
 
@@ -114,6 +114,7 @@ class EpidemicSimulation:
         n_infected: int,
         sim_params: SimulationParams,
         agent: Agent,
+        scenerio=None,
     ):
         self.sim_params = sim_params
         self.n_infected = n_infected
@@ -129,20 +130,19 @@ class EpidemicSimulation:
     def observe(self):
         plt.subplot(1, 2, 1)
         plt.cla()
-        colors = ["c", "r", "g"]
         plt.scatter(
-            [a.x[0] for a in self.agents],
-            [a.x[1] for a in self.agents],
-            c=[colors[a.s] for a in self.agents],
+            [a.position_coord[0] for a in self.agents],
+            [a.position_coord[1] for a in self.agents],
+            c=[a.health_state.value for a in self.agents],
         )
         plt.axis("image")
         plt.axis([0, 1, 0, 1])
-
         plt.subplot(1, 2, 2)
         plt.cla()
-        plt.plot(self.Scount, label="Susceptible")
-        plt.plot(self.Icount, label="Infected")
-        plt.plot(self.Rcount, label="Recovered")
+        plt.plot(self.Scount, "c", label="Susceptible")
+        plt.plot(self.Ecount, "y", label="Exposed")
+        plt.plot(self.Icount, "r", label="Infected")
+        plt.plot(self.Rcount, "g", label="Recovered")
         plt.legend()
         plt.tight_layout()
 
@@ -150,6 +150,9 @@ class EpidemicSimulation:
         return int(
             floor(agent.position_coord[0] / self.sim_params.transmission_radius)
         ), int(floor(agent.position_coord[1] / self.sim_params.transmission_radius))
+
+    def update(self):
+        pass
 
 
 # class AgentBehavior(BaseModel):

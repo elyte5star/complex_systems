@@ -108,7 +108,7 @@ def update():
         for b in nbs:
             if a != b:
                 d = norm(a.x - b.x)
-                if d < r:
+                if 0 < d < r:
                     a.a += f * (a.x - b.x) / d
                     if a.s == 0 and b.s == 2:
                         if random() < p_inf:

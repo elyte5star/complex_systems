@@ -3,8 +3,10 @@ import numpy as np
 from pydantic import BaseModel, computed_field, ConfigDict, Field
 from enum import Enum
 from math import floor
-
 import pycxsimulator
+import optimizer
+import sys
+
 
 rng = np.random.default_rng()
 
@@ -319,23 +321,27 @@ class EpidemicSimulation:
 
 
 if __name__ == "__main__":
-    sim = EpidemicSimulation(
-        n_infected=5,
-        scenario=SocialDistancingScenarioParams(),
-    )
-    # sim.init()
-
-    # max_days = 200
-    # for day in range(max_days):
-    #     if sim.Icount[-1] == 0 and day > 0:  # stop when epidemic ends
-    #         print(f"Epidemic ended after {day} days.")
-    #         break
-    #     sim.update()
-    #     sim.observe()
-
-    #     plt.pause(0.5)
-
-    # plt.ioff()
-    # plt.show()
+    if "--ga" in sys.argv:
+        best_params = optimizer.EvolutionOptimizer(
+            population=20, generations=15, n_agents=500, sim_days=200
+        ).run()
+        
+        sim = EpidemicSimulation(
+            n_infected=5,
+            sim_params=SimulationParams(
+                n_agents=1000,
+                transmission_radius=best_params["transmission_radius"],
+            ),
+            scenario=BaselineScenario(
+                mobility_epsilon=best_params["mobility_epsilon"],
+                p_inf=best_params["p_inf"],
+                p_rec=best_params["p_rec"],
+            ),
+        )
+    else:
+        sim = EpidemicSimulation(
+            n_infected=5,
+            scenario=SocialDistancingScenarioParams(),
+        )
 
     pycxsimulator.GUI().start(func=[sim.init, sim.observe, sim.update])

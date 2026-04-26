@@ -7,3 +7,4 @@ Modelling the spread of COVID-19
     Pydantic
     Numpy
     Matplotlib
+    pygad

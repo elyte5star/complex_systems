@@ -123,10 +123,10 @@ class EpidemicSimulation:
         agent: Agent = Agent(),
         scenario: (
             BaselineScenario
+            | SocialDistancingScenarioParams
             | LockDownScenarioParams
             | VaccinationScenarioParams
             | MaskWearingScenarioParams
-            | None
         ) = BaselineScenario(),
     ):
         self.sim_params = sim_params
@@ -136,6 +136,24 @@ class EpidemicSimulation:
         self.scenario = scenario
         self.agents: list[Agent] = []
         self.day = 0
+
+    def apply_repulsion(self, agent: Agent, neighbors: list[Agent]):
+        force = np.zeros(2)
+        for neighbor in neighbors:
+            delta = agent.position_coord - neighbor.position_coord
+            dist = np.linalg.norm(delta)
+            if dist > 0:
+                # Inverse-distance weighting: closer neighbors push harder
+                force += (delta / dist) * (self.sim_params.repulsion_force / dist)
+
+        agent.velocity_vector += force
+        # Re-normalise to preserve target speed after the force is applied
+        norm = np.linalg.norm(agent.velocity_vector)
+        if norm > 0:
+            mobility = getattr(
+                self.scenario, "mobility_epsilon", agent.mobility_epsilon
+            )
+            agent.velocity_vector = agent.velocity_vector / norm * mobility
 
     def init(self):
         self.agents = [Agent() for _ in range(self.sim_params.n_agents)]
@@ -296,7 +314,10 @@ class EpidemicSimulation:
 
 
 if __name__ == "__main__":
-    sim = EpidemicSimulation(n_infected=5, scenario=SocialDistancingScenarioParams())
+    sim = EpidemicSimulation(
+        n_infected=5,
+        scenario=SocialDistancingScenarioParams(),
+    )
     sim.init()
 
     max_days = 200

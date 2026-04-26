@@ -325,7 +325,7 @@ if __name__ == "__main__":
         best_params = optimizer.EvolutionOptimizer(
             population=20, generations=15, n_agents=500, sim_days=200
         ).run()
-        
+
         sim = EpidemicSimulation(
             n_infected=5,
             sim_params=SimulationParams(

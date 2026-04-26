@@ -4,7 +4,7 @@ from pydantic import BaseModel, computed_field, ConfigDict, Field
 from enum import Enum
 from math import floor
 
-# import pycxsimulator
+import pycxsimulator
 
 rng = np.random.default_rng()
 
@@ -23,8 +23,7 @@ class AgentHealthState(str, Enum):
 
 
 class TunableHyperParams(BaseModel):
-    agent_speeds: list[float] = [0.001, 0.05]
-    repulsion_forces: list[float] = [0.001, 0.1]
+    mobility_epsilon: list[float] = [0.005, 0.030]
     perception_ranges: list[float] = [0.01, 0.05]
     infection_probabilities: list[float] = [0.1, 0.9]
     recovery_probabilities: list[float] = [0.01, 0.1]
@@ -95,12 +94,13 @@ class Agent(AgentBehavior):
             self.velocity_vector[1] *= -1
 
 
-# class SimulationState(BaseModel):
-#     agents: list[Agent]
-#     Scount: list[int]
-#     Ecount: list[int]
-#     Icount: list[int]
-#     Rcount: list[int]
+class SimulationState(BaseModel):
+    Agents: list[Agent]
+    Scount: list[int]
+    Ecount: list[int]
+    Icount: list[int]
+    Rcount: list[int]
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class SimulationParams(BaseModel):
@@ -127,6 +127,7 @@ class EpidemicSimulation:
             | LockDownScenarioParams
             | VaccinationScenarioParams
             | MaskWearingScenarioParams
+            | None
         ) = BaselineScenario(),
     ):
         self.sim_params = sim_params
@@ -137,35 +138,21 @@ class EpidemicSimulation:
         self.agents: list[Agent] = []
         self.day = 0
 
-    def apply_repulsion(self, agent: Agent, neighbors: list[Agent]):
-        force = np.zeros(2)
-        for neighbor in neighbors:
-            delta = agent.position_coord - neighbor.position_coord
-            dist = np.linalg.norm(delta)
-            if dist > 0:
-                # Inverse-distance weighting: closer neighbors push harder
-                force += (delta / dist) * (self.sim_params.repulsion_force / dist)
-
-        agent.velocity_vector += force
-        # Re-normalise to preserve target speed after the force is applied
-        norm = np.linalg.norm(agent.velocity_vector)
-        if norm > 0:
-            mobility = getattr(
-                self.scenario, "mobility_epsilon", agent.mobility_epsilon
-            )
-            agent.velocity_vector = agent.velocity_vector / norm * mobility
-
     def init(self):
         self.agents = [Agent() for _ in range(self.sim_params.n_agents)]
         for i in range(self.n_infected):
             self.agents[i].health_state = AgentHealthState.INFECTED
-
-        self.Scount = [self.sim_params.n_agents - self.n_infected]
-        self.Ecount = [0]
-        self.Icount = [self.n_infected]
-        self.Rcount = [0]
+        self.state = SimulationState(
+            Agents=self.agents,
+            Scount=[self.sim_params.n_agents - self.n_infected],
+            Ecount=[0],
+            Icount=[self.n_infected],
+            Rcount=[0],
+        )
 
     def observe(self):
+        fig = plt.gcf()
+        fig.set_size_inches(10, 6)
         plt.subplot(1, 2, 1)
         plt.cla()
         plt.scatter(
@@ -176,14 +163,14 @@ class EpidemicSimulation:
         plt.axis("image")
         plt.axis([0, 1, 0, 1])
         plt.title(
-            f"{self.scenario.__class__.__name__}, S{self.Scount[-1]},I{self.Icount[-1]},E{self.Ecount[-1]},R{self.Rcount[-1]} "
+            f"{self.scenario.__class__.__name__}, S{self.state.Scount[-1]}, I{self.state.Icount[-1]}, E{self.state.Ecount[-1]}, R{self.state.Rcount[-1]} "
         )
         plt.subplot(1, 2, 2)
         plt.cla()
-        plt.plot(self.Scount, "c", label="Susceptible")
-        plt.plot(self.Ecount, "y", label="Exposed")
-        plt.plot(self.Icount, "r", label="Infected")
-        plt.plot(self.Rcount, "g", label="Recovered")
+        plt.plot(self.state.Scount, "c", label="Susceptible")
+        plt.plot(self.state.Ecount, "y", label="Exposed")
+        plt.plot(self.state.Icount, "r", label="Infected")
+        plt.plot(self.state.Rcount, "g", label="Recovered")
         plt.legend()
         plt.xlabel("Time (days)")
         plt.ylabel("Number of agents")
@@ -196,6 +183,7 @@ class EpidemicSimulation:
         ), int(floor(agent.position_coord[1] / self.sim_params.transmission_radius))
 
     def update(self):
+
         self.day += 1
         transmission_radius = self.sim_params.transmission_radius
         if hasattr(self, "scenario") and self.scenario is not None:
@@ -205,6 +193,14 @@ class EpidemicSimulation:
             mobility = getattr(
                 self.scenario, "mobility_epsilon", self.agent.mobility_epsilon
             )
+        else:
+            if not hasattr(self, "disease_params"):
+                self.disease_params = DiseaseParams()
+            p_inf = self.disease_params.p_inf
+            p_exp = self.disease_params.p_exp
+            p_rec = self.disease_params.p_rec
+            mobility = self.agent.mobility_epsilon
+
         # Lockdown
         if isinstance(self.scenario, LockDownScenarioParams):
             print("Running LockDownScenario")
@@ -242,13 +238,6 @@ class EpidemicSimulation:
                     if rng.random() < self.scenario.vaccine_efficacy:
                         self.agents[index].health_state = AgentHealthState.RECOVERED
 
-        for agent in self.agents:
-            agent.mobility_epsilon = mobility
-            norm = np.linalg.norm(agent.velocity_vector)
-            if norm > 0:
-                agent.velocity_vector = agent.velocity_vector / norm * mobility
-            agent.move()
-
         # Spatial binning
         bins = self.sim_params.bins_per_dimension
         n_agents = len(self.agents)
@@ -258,29 +247,45 @@ class EpidemicSimulation:
             i, j = self.agent_grid_cell(agent)
             bin_map[i][j].append(idx)
 
+        forces = [np.zeros(2) for _ in range(n_agents)]
         newly_exposed = [False] * n_agents
 
-        for idx_inf, inf_agent in enumerate(self.agents):
-            if inf_agent.health_state != AgentHealthState.INFECTED:
-                continue
-            i, j = self.agent_grid_cell(inf_agent)
+        for idx, agent in enumerate(self.agents):
+            i, j = self.agent_grid_cell(agent)
             for di in (-1, 0, 1):
                 for dj in (-1, 0, 1):
                     ni, nj = i + di, j + dj
                     if 0 <= ni < bins and 0 <= nj < bins:
                         for idx_other in bin_map[ni][nj]:
-                            if idx_other == idx_inf:
+                            if idx_other == idx:
                                 continue
                             other = self.agents[idx_other]
-                            if other.health_state != AgentHealthState.SUSCEPTIBLE:
-                                continue
                             # Euclidean distance
-                            dx = inf_agent.position_coord[0] - other.position_coord[0]
-                            dy = inf_agent.position_coord[1] - other.position_coord[1]
+                            dx = agent.position_coord[0] - other.position_coord[0]
+                            dy = agent.position_coord[1] - other.position_coord[1]
                             dist = np.hypot(dx, dy)
-                            if dist < transmission_radius:
-                                if rng.random() < p_inf:
-                                    newly_exposed[idx_other] = True
+                            if 0 < dist < transmission_radius:
+                                forces[idx] += (
+                                    self.sim_params.repulsion_force
+                                    * np.array([dx, dy])
+                                    / dist
+                                )
+
+                                if (
+                                    agent.health_state == AgentHealthState.SUSCEPTIBLE
+                                    and other.health_state == AgentHealthState.INFECTED
+                                ):
+                                    if rng.random() < p_inf:
+                                        newly_exposed[idx] = True
+
+        for idx, agent in enumerate(self.agents):
+            agent.mobility_epsilon = mobility
+            agent.velocity_vector += forces[idx]
+            norm = np.linalg.norm(agent.velocity_vector)
+            if norm > 0:
+                agent.velocity_vector = agent.velocity_vector / norm * mobility
+            agent.move()
+
         # State transitions
         newly_infected = [False] * n_agents
         newly_recovered = [False] * n_agents
@@ -307,10 +312,10 @@ class EpidemicSimulation:
         i = sum(1 for a in self.agents if a.health_state == AgentHealthState.INFECTED)
         r = sum(1 for a in self.agents if a.health_state == AgentHealthState.RECOVERED)
 
-        self.Scount.append(s)
-        self.Ecount.append(e)
-        self.Icount.append(i)
-        self.Rcount.append(r)
+        self.state.Scount.append(s)
+        self.state.Ecount.append(e)
+        self.state.Icount.append(i)
+        self.state.Rcount.append(r)
 
 
 if __name__ == "__main__":
@@ -318,19 +323,19 @@ if __name__ == "__main__":
         n_infected=5,
         scenario=SocialDistancingScenarioParams(),
     )
-    sim.init()
+    # sim.init()
 
-    max_days = 200
-    for day in range(max_days):
-        if sim.Icount[-1] == 0 and day > 0:  # stop when epidemic ends
-            print(f"Epidemic ended after {day} days.")
-            break
-        sim.update()
-        sim.observe()
+    # max_days = 200
+    # for day in range(max_days):
+    #     if sim.Icount[-1] == 0 and day > 0:  # stop when epidemic ends
+    #         print(f"Epidemic ended after {day} days.")
+    #         break
+    #     sim.update()
+    #     sim.observe()
 
-        plt.pause(0.5)
+    #     plt.pause(0.5)
 
-    plt.ioff()
-    plt.show()
+    # plt.ioff()
+    # plt.show()
 
-    # pycxsimulator.GUI().start(func=[sim.init, sim.observe, sim.update])
+    pycxsimulator.GUI().start(func=[sim.init, sim.observe, sim.update])

@@ -2,43 +2,33 @@ import pycxsimulator
 from pylab import *
 
 # ══════════════════════════════════════════════════════════════════
-# SCENARIO 6: Combined Real-World Intervention
-# Layered public health response integrating all four NPIs:
-#   - High mask compliance           -> beta    = 0.1   (from 0.5)
-#   - Strict lockdown                -> epsilon = 0.01  (from 0.03)
-#   - Social distancing              -> r       = 0.02  (from 0.05)
-#   - Pre-existing immunity (vacc.)  -> 40% start in R
+# SCENARIO 4: Social Distancing (Reduced effective contact radius r)
+# Physical distancing is modelled by shrinking the effective
+# transmission radius from r = 0.05 to r = 0.02, while keeping
+#   - per-contact transmission probability (beta  = 0.5, baseline)
+#   - mobility                             (eps   = 0.03, baseline)
+# fixed. This isolates the mechanism of distancing (people keep
+# further apart -> fewer close-contact events) from masking
+# (per-contact risk; Scenario 3) and lockdown (mobility; Scenario 2).
 #
-# Literature support:
-#   - Mask effectiveness: Chu et al. 2020; Li et al. 2021;
-#                         MacIntyre & Chughtai 2020
-#   - Lockdown mobility drop 60-80%: Hadjidemetriou et al. 2020;
-#                                    Vinceti et al. 2020;
-#                                    Shi et al. 2025
-#   - Distancing / contact-radius reduction:
-#                         Qian & Jiang 2020; Sun & Zhai 2020;
-#                         Maheshwari & Albert 2020;
-#                         de Souza Melo et al. 2021;
-#                         Thu et al. 2020; Prakash et al. 2022
-#   - Partial population immunity: Pooley et al. 2023;
-#                                  Moore et al. 2025;
-#                                  Song et al. 2024
-#
-# This scenario serves as the literature-informed reference against
-# which the GA-optimized parameters (Scenario 7) are compared.
+# Literature support for reducing r:
+#   - Qian & Jiang 2020  (1.5 m droplet reach)
+#   - Sun & Zhai 2020    (Wells-Riley distance index, 1.6-3.0 m safe)
+#   - Maheshwari & Albert 2020 (network-SIR edge removal; R_t 6 -> <1)
+#   - de Souza Melo et al. 2021 (empirical isolation index)
+#   - Thu et al. 2020    (cross-country distancing policy efficacy)
+#   - Prakash et al. 2022 (Kalman-filter distancing efficacy)
 # ══════════════════════════════════════════════════════════════════
 
 n     = 500
-v     = 0.01        # REDUCED mobility (lockdown, epsilon = 0.01)
+v     = 0.03        # baseline mobility (epsilon)
 f     = 0.01
 r     = 0.02        # REDUCED effective transmission radius (distancing)
-k     = int(1/r)+1
+k     = int(1/r)+1  # spatial bin count
 
-p_inf = 0.1         # REDUCED transmission probability (masks, beta = 0.1)
+p_inf = 0.5         # baseline transmission probability (beta)
 p_rec = 0.1         # gamma  = 1/10
 p_exp = 0.192       # sigma  = 1/5.2
-
-vaccinated_frac = 0.4   # 40% start immune
 
 STATE_COLOR = {0:'cyan', 1:'orange', 2:'red', 3:'green'}
 
@@ -58,22 +48,12 @@ class agent:
 def initialize():
     global agents, Scount, Ecount, Icount, Rcount
     agents = [agent() for i in range(n)]
-
-    n_vaccinated = int(n * vaccinated_frac)
-    n_infected   = 5
-
-    for i in range(n):
-        if i < n_infected:
-            agents[i].s = 2   # Infectious seed
-        elif i < n_infected + n_vaccinated:
-            agents[i].s = 3   # Recovered / vaccinated
-        else:
-            agents[i].s = 0   # Susceptible
-
-    Scount = [len([a for a in agents if a.s == 0])]
+    for i in range(5):
+        agents[i].s = 2     # 5 Infectious seeds
+    Scount = [n - 5]
     Ecount = [0]
-    Icount = [n_infected]
-    Rcount = [n_vaccinated]
+    Icount = [5]
+    Rcount = [0]
 
 def observe():
     global agents, Scount, Ecount, Icount, Rcount
@@ -84,7 +64,7 @@ def observe():
             c=[STATE_COLOR[a.s] for a in agents], s=10)
     axis('image')
     axis([0, 1, 0, 1])
-    title('Scenario 6: Combined Intervention\nS=%d E=%d I=%d R=%d' %
+    title('Scenario 4: Social Distancing (r=0.02)\nS=%d E=%d I=%d R=%d' %
           (Scount[-1], Ecount[-1], Icount[-1], Rcount[-1]))
 
     subplot(1, 2, 2)
@@ -92,7 +72,7 @@ def observe():
     plot(Scount, 'c', label='Susceptible')
     plot(Ecount, 'y', label='Exposed')
     plot(Icount, 'r', label='Infectious')
-    plot(Rcount, 'g', label='Recovered/Vaccinated')
+    plot(Rcount, 'g', label='Recovered')
     legend()
     xlabel('Time (days)')
     ylabel('Number of agents')

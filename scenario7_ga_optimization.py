@@ -1,6 +1,6 @@
 """
 ══════════════════════════════════════════════════════════════════
-SCENARIO 6: Genetic Algorithm Optimization (PyGAD)
+SCENARIO 7: Genetic Algorithm Optimization (PyGAD)
 ══════════════════════════════════════════════════════════════════
 
 Goal
@@ -9,26 +9,27 @@ Use a Genetic Algorithm (PyGAD library) to identify the combination
 of intervention parameters that minimizes the total cumulative
 number of agents passing through the Infectious compartment.
 
-Genes (3 real-valued parameters)
-    1.  beta            (transmission probability)   [0.05, 0.50]
-    2.  epsilon         (agent mobility speed)       [0.005, 0.030]
-    3.  immune_fraction (initial Recovered fraction) [0.00, 0.60]
+Genes (4 real-valued parameters)
+    1.  beta            (transmission probability)        [0.05, 0.50]
+    2.  epsilon         (agent mobility speed)            [0.005, 0.030]
+    3.  r               (effective transmission radius)   [0.02, 0.05]
+    4.  immune_fraction (initial Recovered fraction)      [0.00, 0.60]
 
 Fitness
-    Each candidate (beta, epsilon, immune_fraction) is plugged into
-    a headless agent-based SEIR simulation. The fitness is the
+    Each candidate (beta, epsilon, r, immune_fraction) is plugged
+    into a headless agent-based SEIR simulation. The fitness is the
     NEGATIVE total cumulative infections, because PyGAD maximizes.
 
 Reference
     The optimum found here is compared against the literature-
-    informed Scenario 5 parameters (beta=0.1, epsilon=0.01, 40%
-    immunity) to quantify the gap between empirically observed
+    informed Scenario 6 parameters (beta=0.1, epsilon=0.01, r=0.02,
+    40% immunity) to quantify the gap between empirically observed
     mitigation strategies and the mathematically optimal strategy
     [Stanovov et al. 2022; Zheng et al. 2023].
 
 Run
     pip install pygad
-    python scenario6_ga_optimization.py
+    python scenario7_ga_optimization.py
 """
 
 import numpy as np
@@ -36,11 +37,10 @@ import matplotlib.pyplot as plt
 import pygad
 
 # ──────────────────────────────────────────────────────────────
-# Simulation constants (shared with scenarios 1–5)
+# Simulation constants (shared with scenarios 1–6)
 # ──────────────────────────────────────────────────────────────
 N_AGENTS        = 500
 T_MAX           = 80          # days per simulation
-R_TRANSMISSION  = 0.05        # spatial transmission radius
 P_REC           = 0.1         # gamma  = 1/10
 P_EXP           = 0.192       # sigma  = 1/5.2
 N_INFECTED_INIT = 5           # initial infectious seeds
@@ -48,11 +48,18 @@ N_INFECTED_INIT = 5           # initial infectious seeds
 # ──────────────────────────────────────────────────────────────
 # Headless ABM-SEIR simulation (vectorised for GA throughput)
 # ──────────────────────────────────────────────────────────────
-def run_simulation(beta, epsilon, immune_fraction,
+def run_simulation(beta, epsilon, r, immune_fraction,
                    seed=0, t_max=T_MAX, track=False):
     """
     Run one SEIR agent-based simulation and return total cumulative
     infections (i.e. agents that left S during the run).
+
+    Parameters
+    ----------
+    beta            : per-contact transmission probability
+    epsilon         : agent mobility (step size per day)
+    r               : effective transmission radius
+    immune_fraction : fraction of population starting in Recovered
 
     If track=True, also return SEIR count trajectories over time.
     """
@@ -78,6 +85,8 @@ def run_simulation(beta, epsilon, immune_fraction,
         I_hist = [int((state == 2).sum())]
         R_hist = [int((state == 3).sum())]
 
+    r_sq = r * r        # pre-compute once per simulation
+
     for _ in range(t_max):
         # Random-walk move with reflecting boundaries
         pos += vel
@@ -93,7 +102,7 @@ def run_simulation(beta, epsilon, immune_fraction,
         if sus_idx.size and inf_idx.size:
             diff   = pos[sus_idx, None, :] - pos[inf_idx, None].reshape(1, inf_idx.size, 2)
             dist2  = (diff ** 2).sum(axis=2)
-            close  = dist2 < R_TRANSMISSION ** 2
+            close  = dist2 < r_sq
             n_near = close.sum(axis=1)
             # Independent Bernoulli(beta) per infected neighbour
             p_inf  = 1 - (1 - beta) ** n_near
@@ -142,8 +151,8 @@ def run_simulation(beta, epsilon, immune_fraction,
 N_SEEDS_AVERAGE = 2   # average over a few seeds to reduce variance
 
 def fitness_function(ga_instance, solution, solution_idx):
-    beta, epsilon, immune_fraction = solution
-    totals = [run_simulation(beta, epsilon, immune_fraction, seed=s)
+    beta, epsilon, r, immune_fraction = solution
+    totals = [run_simulation(beta, epsilon, r, immune_fraction, seed=s)
               for s in range(N_SEEDS_AVERAGE)]
     mean_infections = float(np.mean(totals))
     return -mean_infections        # PyGAD maximises
@@ -155,6 +164,7 @@ def fitness_function(ga_instance, solution, solution_idx):
 gene_space = [
     {'low': 0.05,  'high': 0.50},   # beta
     {'low': 0.005, 'high': 0.030},  # epsilon
+    {'low': 0.02,  'high': 0.050},  # r (effective transmission radius)
     {'low': 0.00,  'high': 0.60},   # immune_fraction
 ]
 
@@ -169,7 +179,8 @@ def run_ga(seed, verbose=True):
 
     Returns
     -------
-    best_solution      : np.ndarray of shape (3,)   [beta, eps, immune_fraction]
+    best_solution      : np.ndarray of shape (4,)
+                         [beta, epsilon, r, immune_fraction]
     best_fitness       : float                       (negative total infections)
     fitness_per_gen    : np.ndarray                  best fitness per generation
     """
@@ -179,14 +190,14 @@ def run_ga(seed, verbose=True):
             print(f"    gen {ga.generations_completed:2d} | "
                   f"infections = {-fit:6.1f} | "
                   f"beta={sol[0]:.3f}  eps={sol[1]:.4f}  "
-                  f"imm={sol[2]:.3f}")
+                  f"r={sol[2]:.4f}  imm={sol[3]:.3f}")
 
     ga = pygad.GA(
         num_generations        = 15,
         num_parents_mating     = 4,
         fitness_func           = fitness_function,
         sol_per_pop            = 8,
-        num_genes              = 3,
+        num_genes              = 4,
         gene_space             = gene_space,
         gene_type              = float,
         parent_selection_type  = "tournament",
@@ -223,27 +234,28 @@ if __name__ == "__main__":
         best_fitnesses.append(fit)
         fitness_curves.append(curve)
         print(f"  -> best this run: infections = {-fit:.1f}, "
-              f"beta={sol[0]:.4f} eps={sol[1]:.4f} imm={sol[2]:.4f}\n")
+              f"beta={sol[0]:.4f} eps={sol[1]:.4f} "
+              f"r={sol[2]:.4f} imm={sol[3]:.4f}\n")
 
-    best_solutions = np.vstack(best_solutions)                   # (N_GA_RUNS, 3)
+    best_solutions = np.vstack(best_solutions)                   # (N_GA_RUNS, 4)
     best_infections = -np.asarray(best_fitnesses)                # lower is better
 
-    # Overall best across all 10 runs ----------------------------
+    # Overall best across all runs -------------------------------
     overall_idx            = int(np.argmin(best_infections))
-    beta_opt, eps_opt, imm_opt = best_solutions[overall_idx]
+    beta_opt, eps_opt, r_opt, imm_opt = best_solutions[overall_idx]
     best_total_infections  = float(best_infections[overall_idx])
 
     # Per-run summary table --------------------------------------
-    print("══════════════════════════════════════════════════════")
+    print("════════════════════════════════════════════════════════════════")
     print(f"Per-run best solutions ({N_GA_RUNS} independent runs)")
-    print("══════════════════════════════════════════════════════")
-    print(f"{'run':>3} | {'beta':>6} | {'epsilon':>7} | "
+    print("════════════════════════════════════════════════════════════════")
+    print(f"{'run':>3} | {'beta':>6} | {'epsilon':>7} | {'r':>6} | "
           f"{'immune':>6} | {'infections':>10}")
-    print("-" * 50)
+    print("-" * 60)
     for i, (sol, inf) in enumerate(zip(best_solutions, best_infections)):
         marker = "  <-- best" if i == overall_idx else ""
-        print(f"{i:>3} | {sol[0]:>6.4f} | {sol[1]:>7.4f} | "
-              f"{sol[2]:>6.4f} | {inf:>10.1f}{marker}")
+        print(f"{i:>3} | {sol[0]:>6.4f} | {sol[1]:>7.4f} | {sol[2]:>6.4f} | "
+              f"{sol[3]:>6.4f} | {inf:>10.1f}{marker}")
 
     # Aggregate statistics (robustness across runs) --------------
     print("\n══════════════════════════════════════════════════════")
@@ -253,8 +265,10 @@ if __name__ == "__main__":
           f"± {best_solutions[:, 0].std():.4f}")
     print(f"  epsilon         : {best_solutions[:, 1].mean():.4f} "
           f"± {best_solutions[:, 1].std():.4f}")
-    print(f"  immune_fraction : {best_solutions[:, 2].mean():.4f} "
+    print(f"  r               : {best_solutions[:, 2].mean():.4f} "
           f"± {best_solutions[:, 2].std():.4f}")
+    print(f"  immune_fraction : {best_solutions[:, 3].mean():.4f} "
+          f"± {best_solutions[:, 3].std():.4f}")
     print(f"  infections      : {best_infections.mean():.1f} "
           f"± {best_infections.std():.1f}")
 
@@ -263,26 +277,27 @@ if __name__ == "__main__":
     print("══════════════════════════════════════════════════════")
     print(f"  beta (transmission prob)     : {beta_opt:.4f}")
     print(f"  epsilon (mobility)           : {eps_opt:.4f}")
+    print(f"  r (transmission radius)      : {r_opt:.4f}")
     print(f"  immune_fraction (initial R)  : {imm_opt:.4f}")
     print(f"  mean total infections        : {best_total_infections:.1f}")
 
     # ------------------------------------------------------------
-    # Compare overall best against Scenario 5 literature values
+    # Compare overall best against Scenario 6 literature values
     # ------------------------------------------------------------
-    print("\nRunning reference Scenario 5 for comparison...")
-    S5_BETA, S5_EPS, S5_IMM = 0.10, 0.01, 0.40
+    print("\nRunning reference Scenario 6 for comparison...")
+    S6_BETA, S6_EPS, S6_R, S6_IMM = 0.10, 0.01, 0.02, 0.40
 
-    s5_totals = [run_simulation(S5_BETA, S5_EPS, S5_IMM, seed=s)
+    s6_totals = [run_simulation(S6_BETA, S6_EPS, S6_R, S6_IMM, seed=s)
                  for s in range(N_SEEDS_AVERAGE)]
-    s5_mean = float(np.mean(s5_totals))
+    s6_mean = float(np.mean(s6_totals))
 
-    print(f"  Scenario 5 mean total infections : {s5_mean:.1f}")
+    print(f"  Scenario 6 mean total infections : {s6_mean:.1f}")
     print(f"  GA (overall best) infections     : {best_total_infections:.1f}")
     print(f"  Absolute improvement              : "
-          f"{s5_mean - best_total_infections:+.1f} agents")
-    if s5_mean > 0:
+          f"{s6_mean - best_total_infections:+.1f} agents")
+    if s6_mean > 0:
         print(f"  Relative improvement              : "
-              f"{100 * (s5_mean - best_total_infections) / s5_mean:+.1f}%")
+              f"{100 * (s6_mean - best_total_infections) / s6_mean:+.1f}%")
 
     # ------------------------------------------------------------
     # Plots: all 10 convergence curves + SEIR comparison
@@ -321,28 +336,27 @@ if __name__ == "__main__":
     axes[0].legend()
     axes[0].grid(alpha=0.3)
 
-    # (b) SEIR curves: Scenario 5 vs overall-best GA solution
-    _, S_s5, E_s5, I_s5, R_s5 = run_simulation(
-        S5_BETA, S5_EPS, S5_IMM, seed=0, track=True)
+    # (b) SEIR curves: Scenario 6 vs overall-best GA solution
+    _, S_s6, E_s6, I_s6, R_s6 = run_simulation(
+        S6_BETA, S6_EPS, S6_R, S6_IMM, seed=0, track=True)
     _, S_ga, E_ga, I_ga, R_ga = run_simulation(
-        beta_opt, eps_opt, imm_opt, seed=0, track=True)
+        beta_opt, eps_opt, r_opt, imm_opt, seed=0, track=True)
 
-    # Warm hues (red / orange) for Scenario 5, cool hues (blue / green)
+    # Warm hues (red / orange) for Scenario 6, cool hues (blue / green)
     # for the GA optimum, so the two scenarios are easy to tell apart.
-    t = np.arange(len(S_s5))
-    axes[1].plot(t, I_s5, color="#d62728", linestyle="--", lw=2.0,
-                 label="Scenario 5: Infectious")
-    axes[1].plot(t, E_s5, color="#ff7f0e", linestyle="--", lw=2.0,
-                 label="Scenario 5: Exposed")
+    t = np.arange(len(S_s6))
+    axes[1].plot(t, I_s6, color="#d62728", linestyle="--", lw=2.0,
+                 label="Scenario 6: Infectious")
+    axes[1].plot(t, E_s6, color="#ff7f0e", linestyle="--", lw=2.0,
+                 label="Scenario 6: Exposed")
     axes[1].plot(t, I_ga, color="#1f77b4", linestyle="-",  lw=2.5,
                  label="GA optimum: Infectious")
     axes[1].plot(t, E_ga, color="#2ca02c", linestyle="-",  lw=2.5,
                  label="GA optimum: Exposed")
     axes[1].set_xlabel("Time (days)")
     axes[1].set_ylabel("Number of agents")
-    axes[1].set_title("Scenario 5 vs GA-optimised (overall best)")
+    axes[1].set_title("Scenario 6 vs GA-optimised (overall best)")
     axes[1].legend()
-    axes[1].grid(alpha=0.3)
     axes[1].grid(alpha=0.3)
 
     plt.tight_layout()

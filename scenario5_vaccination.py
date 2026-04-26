@@ -2,12 +2,13 @@ import pycxsimulator
 from pylab import *
 
 # ══════════════════════════════════════════════════════════════════
-# SCENARIO 4: Vaccination Campaign (40% initial immunity)
+# SCENARIO 5: Vaccination Campaign (40% initial immunity)
 # 40% of population starts in Recovered (immune) state at t=0
 # to represent partial population immunity from vaccination and/or
 # prior infection (Pooley et al. 2023; Moore et al. 2025;
-# Song et al. 2024). Mobility (epsilon = 0.03) and beta = 0.5 are
-# unchanged from baseline so the effect of immunity can be isolated.
+# Song et al. 2024). Mobility (epsilon = 0.03), beta = 0.5 and
+# r = 0.05 are unchanged from baseline so the effect of immunity
+# can be isolated.
 # ══════════════════════════════════════════════════════════════════
 
 n     = 500
@@ -67,7 +68,7 @@ def observe():
             c=[STATE_COLOR[a.s] for a in agents], s=10)
     axis('image')
     axis([0, 1, 0, 1])
-    title('Scenario 4: Vaccination 40%%\nS=%d E=%d I=%d R=%d' %
+    title('Scenario 5: Vaccination 40%%\nS=%d E=%d I=%d R=%d' %
           (Scount[-1], Ecount[-1], Icount[-1], Rcount[-1]))
 
     subplot(1, 2, 2)

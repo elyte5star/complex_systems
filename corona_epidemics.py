@@ -167,7 +167,7 @@ class EpidemicSimulation:
             [s.__class__.__name__ for s in self.scenarios],
         )
         fig = plt.gcf()
-        fig.set_size_inches(16, 6)
+        fig.set_size_inches(17, 6)
         plt.subplot(1, 2, 1)
         plt.cla()
         plt.scatter(

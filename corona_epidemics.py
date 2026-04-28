@@ -6,6 +6,7 @@ from math import floor
 import pycxsimulator
 import optimizer
 import sys
+from typing import Union
 
 
 rng = np.random.default_rng()
@@ -123,20 +124,29 @@ class EpidemicSimulation:
         sim_params: SimulationParams = SimulationParams(),
         disease_params: DiseaseParams = DiseaseParams(),
         agent: Agent = Agent(),
-        scenario: (
-            BaselineScenario
-            | SocialDistancingScenarioParams
-            | LockDownScenarioParams
-            | VaccinationScenarioParams
-            | MaskWearingScenarioParams
+        scenarios: (
+            list[
+                Union[
+                    BaselineScenario,
+                    SocialDistancingScenarioParams,
+                    LockDownScenarioParams,
+                    VaccinationScenarioParams,
+                    MaskWearingScenarioParams,
+                ]
+            ]
             | None
-        ) = BaselineScenario(),
+        ) = None,
     ):
         self.sim_params = sim_params
         self.n_infected = n_infected
         self.disease_params = disease_params
         self.agent = agent
-        self.scenario = scenario
+        if scenarios is None:
+            self.scenarios = [BaselineScenario()]
+        elif isinstance(scenarios, list):
+            self.scenarios = scenarios
+        else:
+            self.scenarios = [scenarios]
         self.agents: list[Agent] = []
         self.day = 0
 
@@ -153,8 +163,11 @@ class EpidemicSimulation:
         )
 
     def observe(self):
+        scenario_names = "+".join(
+            [s.__class__.__name__ for s in self.scenarios],
+        )
         fig = plt.gcf()
-        fig.set_size_inches(10, 6)
+        fig.set_size_inches(16, 6)
         plt.subplot(1, 2, 1)
         plt.cla()
         plt.scatter(
@@ -165,7 +178,7 @@ class EpidemicSimulation:
         plt.axis("image")
         plt.axis([0, 1, 0, 1])
         plt.title(
-            f"{self.scenario.__class__.__name__}, S{self.state.Scount[-1]}, I{self.state.Icount[-1]}, E{self.state.Ecount[-1]}, R{self.state.Rcount[-1]} "
+            f"{scenario_names}, S{self.state.Scount[-1]}, I{self.state.Icount[-1]}, E{self.state.Ecount[-1]}, R{self.state.Rcount[-1]} "
         )
         plt.subplot(1, 2, 2)
         plt.cla()
@@ -187,58 +200,53 @@ class EpidemicSimulation:
     def update(self):
 
         self.day += 1
+
+        # Defaults
+        p_inf = self.disease_params.p_inf
+        p_exp = self.disease_params.p_exp
+        p_rec = self.disease_params.p_rec
+        mobility = self.agent.mobility_epsilon
         transmission_radius = self.sim_params.transmission_radius
-        if hasattr(self, "scenario") and self.scenario is not None:
-            p_inf = getattr(self.scenario, "p_inf", self.disease_params.p_inf)
-            p_exp = getattr(self.scenario, "p_exp", self.disease_params.p_exp)
-            p_rec = getattr(self.scenario, "p_rec", self.disease_params.p_rec)
-            mobility = getattr(
-                self.scenario, "mobility_epsilon", self.agent.mobility_epsilon
-            )
-        else:
-            if not hasattr(self, "disease_params"):
-                self.disease_params = DiseaseParams()
-            p_inf = self.disease_params.p_inf
-            p_exp = self.disease_params.p_exp
-            p_rec = self.disease_params.p_rec
-            mobility = self.agent.mobility_epsilon
 
-        # Lockdown
-        if isinstance(self.scenario, LockDownScenarioParams):
-            print("Running LockDownScenario")
-            if self.day < self.scenario.lock_down_duration:
-                mobility *= 1 - self.scenario.lock_down_effectiveness
+        for scenario in self.scenarios:
 
-        # Social distancing
-        if isinstance(self.scenario, SocialDistancingScenarioParams):
-            print("Running SocialDistancingScenario")
-            transmission_radius *= 1 - self.scenario.social_distancing_effectiveness
+            p_inf = getattr(scenario, "p_inf", p_inf)
+            p_exp = getattr(scenario, "p_exp", p_exp)
+            p_rec = getattr(scenario, "p_rec", p_rec)
+            mobility = getattr(scenario, "mobility_epsilon", mobility)
 
-        # Mask wearing
-        if isinstance(self.scenario, MaskWearingScenarioParams):
-            print("Running MaskWearingScenario")
-            p_inf *= 1 - self.scenario.mask_wearing_effectiveness
+            if isinstance(scenario, LockDownScenarioParams):
+                if self.day < scenario.lock_down_duration:
+                    mobility *= 1 - scenario.lock_down_effectiveness
 
-        # Vaccination (susceptible -> recovered)
-        if isinstance(self.scenario, VaccinationScenarioParams):
-            print("Running VaccinationScenario")
-            n_vaccinated = int(
-                self.scenario.vaccination_rate * len(self.agents),
-            )
-            susceptible_indices = [
-                i
-                for i, a in enumerate(self.agents)
-                if a.health_state == AgentHealthState.SUSCEPTIBLE
-            ]
-            if susceptible_indices:
-                chosen = rng.choice(
-                    susceptible_indices,
-                    size=min(n_vaccinated, len(susceptible_indices)),
-                    replace=False,
-                )
-                for index in chosen:
-                    if rng.random() < self.scenario.vaccine_efficacy:
-                        self.agents[index].health_state = AgentHealthState.RECOVERED
+            # Social distancing
+            if isinstance(scenario, SocialDistancingScenarioParams):
+                transmission_radius *= 1 - scenario.social_distancing_effectiveness
+
+            # Mask wearing
+            if isinstance(scenario, MaskWearingScenarioParams):
+                p_inf *= 1 - scenario.mask_wearing_effectiveness
+
+            # Vaccination
+            if isinstance(scenario, VaccinationScenarioParams):
+                n_vaccinated = int(scenario.vaccination_rate * len(self.agents))
+
+                susceptible_indices = [
+                    i
+                    for i, a in enumerate(self.agents)
+                    if a.health_state == AgentHealthState.SUSCEPTIBLE
+                ]
+
+                if susceptible_indices:
+                    chosen = rng.choice(
+                        susceptible_indices,
+                        size=min(n_vaccinated, len(susceptible_indices)),
+                        replace=False,
+                    )
+
+                    for index in chosen:
+                        if rng.random() < scenario.vaccine_efficacy:
+                            self.agents[index].health_state = AgentHealthState.RECOVERED
 
         # Spatial binning
         bins = self.sim_params.bins_per_dimension
@@ -327,21 +335,27 @@ if __name__ == "__main__":
         ).run()
 
         sim = EpidemicSimulation(
-            n_infected=5,
+            n_infected=10,
             sim_params=SimulationParams(
                 n_agents=1000,
                 transmission_radius=best_params["transmission_radius"],
             ),
-            scenario=BaselineScenario(
-                mobility_epsilon=best_params["mobility_epsilon"],
-                p_inf=best_params["p_inf"],
-                p_rec=best_params["p_rec"],
-            ),
+            scenarios=[
+                BaselineScenario(
+                    mobility_epsilon=best_params["mobility_epsilon"],
+                    p_inf=best_params["p_inf"],
+                    p_rec=best_params["p_rec"],
+                ),
+                SocialDistancingScenarioParams(),
+                LockDownScenarioParams(),
+                VaccinationScenarioParams(),
+                MaskWearingScenarioParams(),
+            ],
         )
     else:
         sim = EpidemicSimulation(
             n_infected=5,
-            scenario=SocialDistancingScenarioParams(),
+            scenarios=None,
         )
 
     pycxsimulator.GUI().start(func=[sim.init, sim.observe, sim.update])

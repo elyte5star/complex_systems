@@ -6,6 +6,10 @@ from corona_epidemics import (
     BaselineScenario,
     SimulationParams,
     EpidemicSimulation,
+    SocialDistancingScenarioParams,
+    LockDownScenarioParams,
+    VaccinationScenarioParams,
+    MaskWearingScenarioParams,
 )
 
 
@@ -14,7 +18,7 @@ class EvolutionOptimizer:
 
     def __init__(
         self,
-        hyper_params: TunableHyperParams = TunableHyperParams(),
+        hyper_params: TunableHyperParams | None = None,
         population: int = 30,
         generations: int = 20,
         mutation_rate: float = 0.2,
@@ -23,22 +27,32 @@ class EvolutionOptimizer:
         n_infected: int = 5,
         n_agents: int = 500,
     ) -> None:
-        self.hyper_params = hyper_params
+        self.hyper_params = hyper_params or TunableHyperParams()
         self.population = population
         self.generations = generations
-        self.mutation_rates = mutation_rate
+        self.mutation_rate = mutation_rate
         self.elites = elites
         self.sim_days = sim_days
         self.n_infected = n_infected
         self.n_agents = n_agents
 
-    def simulation(self, solutions: list[float]):
-        mobility_epsilon, transmission_radius, p_inf, p_rec = solutions
-        scenerio = BaselineScenario(
-            mobility_epsilon=float(mobility_epsilon),
-            p_inf=float(p_inf),
-            p_rec=float(p_rec),
-        )
+    def build_scenarios(self, solution: list[float]) -> list:
+        scenarios = [
+            BaselineScenario(
+                mobility_epsilon=float(solution[0]),
+                p_inf=float(solution[2]),
+                p_rec=float(solution[3]),
+            ),
+            SocialDistancingScenarioParams(),
+            LockDownScenarioParams(),
+            VaccinationScenarioParams(),
+            MaskWearingScenarioParams(),
+        ]
+        return scenarios
+
+    def simulation(self, solution: list[float]):
+        _, transmission_radius, _, _ = solution
+        scenarios = self.build_scenarios(solution)
         sim_params = SimulationParams(
             n_agents=self.n_agents, transmission_radius=transmission_radius
         )
@@ -46,8 +60,9 @@ class EvolutionOptimizer:
         sim = EpidemicSimulation(
             n_infected=self.n_infected,
             sim_params=sim_params,
-            scenario=scenerio,
+            scenarios=scenarios,
         )
+
         sim.init()
 
         for day in range(self.sim_days):
@@ -108,7 +123,7 @@ class EvolutionOptimizer:
             crossover_type="uniform",
             crossover_probability=0.8,
             mutation_type="random",
-            mutation_probability=self.mutation_rates,
+            mutation_probability=self.mutation_rate,
             keep_elitism=self.elites,
             random_seed=42,
             suppress_warnings=True,

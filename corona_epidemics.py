@@ -171,13 +171,13 @@ class EpidemicSimulation:
             | MaskWearingScenarioParams
             | CombinedScenario
             | None
-        ) = BaselineScenario(),
+        ) = None,
     ):
         self.sim_params = sim_params
         self.n_infected = n_infected
         self.disease_params = disease_params
         self.agent = agent
-        self.scenario = scenario
+        self.scenario = scenario if scenario is not None else BaselineScenario()
         self.agents: list[Agent] = []
         self.day = 0
 

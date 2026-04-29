@@ -26,7 +26,7 @@ class EvolutionOptimizer:
 
     def __init__(
         self,
-        hyper_params: TunableHyperParams = TunableHyperParams(),
+        hyper_params: TunableHyperParams | None = None,
         population: int = 30,
         generations: int = 20,
         mutation_rate: float = 0.2,
@@ -35,10 +35,10 @@ class EvolutionOptimizer:
         n_infected: int = 5,
         n_agents: int = 500,
     ) -> None:
-        self.hyper_params = hyper_params
+        self.hyper_params = hyper_params if hyper_params is not None else TunableHyperParams()
         self.population = population
         self.generations = generations
-        self.mutation_rates = mutation_rate
+        self.mutation_rate = mutation_rate
         self.elites = elites
         self.sim_days = sim_days
         self.n_infected = n_infected
@@ -121,7 +121,7 @@ class EvolutionOptimizer:
             crossover_type="uniform",
             crossover_probability=0.8,
             mutation_type="random",
-            mutation_probability=self.mutation_rates,
+            mutation_probability=self.mutation_rate,
             keep_elitism=self.elites,
             random_seed=42,
             suppress_warnings=True,

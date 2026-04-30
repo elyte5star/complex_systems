@@ -4,16 +4,18 @@ from pydantic import BaseModel, computed_field, ConfigDict, Field
 from enum import Enum
 from math import floor
 import pycxsimulator
+import optimizer
 import sys
+from typing import Union
 
 
 rng = np.random.default_rng()
 
 
 class DiseaseParams(BaseModel):
-    p_inf: float = 0.5      # transmission probability beta
-    p_rec: float = 0.1      # recovery probability gamma = 1/10
-    p_exp: float = 0.192    # 1 / 5.2  incubation period sigma
+    p_inf: float = 0.5  # infection probability beta
+    p_rec: float = 0.1  # recovery probability gamma
+    p_exp: float = 0.192  # 1 / 5.2  incubation period ≈ 5.2 days sigma
 
 
 class AgentHealthState(str, Enum):
@@ -24,82 +26,41 @@ class AgentHealthState(str, Enum):
 
 
 class TunableHyperParams(BaseModel):
-    """GA search bounds aligned with Scenario 7 in the report."""
-    mobility_epsilon: list[float]        = [0.005, 0.030]
-    perception_ranges: list[float]       = [0.02,  0.05]
-    infection_probabilities: list[float] = [0.05,  0.50]
-    immune_fractions: list[float]        = [0.0,   0.6]
+    mobility_epsilon: list[float] = [0.005, 0.030]
+    perception_ranges: list[float] = [0.01, 0.05]
+    infection_probabilities: list[float] = [0.1, 0.9]
+    recovery_probabilities: list[float] = [0.01, 0.1]
 
-
-# ─────────────────────────────────────────────────────────────────
-# Scenarios — parameter values are literature-informed (see report
-# Sections 4.1 and 5). Each single-mechanism scenario changes one
-# knob; CombinedScenario stacks all four.
-# ─────────────────────────────────────────────────────────────────
 
 class BaselineScenario(DiseaseParams):
-    """Pre-intervention conditions: full mobility, no masks, no immunity."""
     mobility_epsilon: float = 0.03
-    initial_immune_fraction: float = 0.0
-    social_distancing_effectiveness: float = 0.0
 
 
 class LockDownScenarioParams(BaselineScenario):
-    """Strict lockdown: sustained mobility reduction.
-
-    eps reduced 0.03 -> 0.01 (literature: Hadjidemetriou 2020,
-    Vinceti 2020, Shi 2025). The temporal multiplier from the
-    earlier prototype has been removed so the effect is sustained
-    across the full simulation, matching the report.
-    """
+    lock_down_duration: int = 10  # duration of lock down in days
+    lock_down_effectiveness: float = 0.0  # effectiveness of lock down
     mobility_epsilon: float = 0.01
 
 
 class SocialDistancingScenarioParams(BaselineScenario):
-    """Social distancing: reduces effective transmission radius.
-
-    r_effective = r * (1 - effectiveness); 0.6 produces r = 0.02
-    (Qian 2020, Sun 2020, Maheshwari 2020, de Souza Melo 2021,
-    Thu 2020, Prakash 2022).
-    """
-    social_distancing_effectiveness: float = 0.6
+    social_distancing_effectiveness: float = 0.6  # effectiveness of social distancing
 
 
 class VaccinationScenarioParams(BaselineScenario):
-    """Vaccination campaign: 40% pre-existing immunity at t=0.
-
-    Replaces the earlier daily-rollout model (1%/day, 95% efficacy)
-    with the report's literature-informed initial-immunity
-    formulation (Pooley 2023, Moore 2025, Song 2024).
-    """
-    initial_immune_fraction: float = 0.40
+    vaccination_rate: float = 0.4  # percentage of population vaccinated per day
+    vaccine_efficacy: float = 1.0  # efficacy of the vaccine
 
 
 class MaskWearingScenarioParams(BaselineScenario):
-    """High mask compliance: per-contact transmission probability
-    lowered directly to 0.10 (Chu 2020, Li 2021, MacIntyre 2020).
-    The old compound effect (p_inf=0.1 * effectiveness=0.5) is
-    removed so the literature value is reached directly.
-    """
-    p_inf: float = 0.10
+    mask_wearing_effectiveness: float = (
+        0.0  # effectiveness of mask wearing in reducing transmission
+    )
+    p_inf: float = 0.1
 
-
-class CombinedScenario(BaselineScenario):
-    """Combined real-world intervention stacking all four levers
-    (Section 4.1(6) of the report)."""
-    p_inf: float = 0.10                              # masks
-    mobility_epsilon: float = 0.01                   # lockdown
-    social_distancing_effectiveness: float = 0.6     # distancing -> r=0.02
-    initial_immune_fraction: float = 0.40            # vaccination
-
-
-# ─────────────────────────────────────────────────────────────────
-# Agents and simulation
-# ─────────────────────────────────────────────────────────────────
 
 class AgentBehavior(BaseModel):
     position_coord: np.ndarray = Field(default_factory=lambda: rng.random(2))
-    mobility_epsilon: float = 0.3
+    mobility_epsilon: float = 0.03
     health_state: AgentHealthState = AgentHealthState.SUSCEPTIBLE
     velocity_vector: np.ndarray = Field(
         default_factory=lambda: rng.random(2) - np.array([0.5, 0.5])
@@ -146,9 +107,9 @@ class SimulationState(BaseModel):
 
 
 class SimulationParams(BaseModel):
-    n_agents: int = 500           # report uses N=500
-    repulsion_force: float = 0.01
-    transmission_radius: float = 0.05
+    n_agents: int = 500  # number of agents
+    repulsion_force: float = 0.01  # repulsion force constant
+    transmission_radius: float = 0.05  # transmission radius
 
     @computed_field
     def bins_per_dimension(self) -> int:
@@ -163,13 +124,16 @@ class EpidemicSimulation:
         sim_params: SimulationParams = SimulationParams(),
         disease_params: DiseaseParams = DiseaseParams(),
         agent: Agent = Agent(),
-        scenario: (
-            BaselineScenario
-            | SocialDistancingScenarioParams
-            | LockDownScenarioParams
-            | VaccinationScenarioParams
-            | MaskWearingScenarioParams
-            | CombinedScenario
+        scenarios: (
+            list[
+                Union[
+                    BaselineScenario,
+                    SocialDistancingScenarioParams,
+                    LockDownScenarioParams,
+                    VaccinationScenarioParams,
+                    MaskWearingScenarioParams,
+                ]
+            ]
             | None
         ) = None,
     ):
@@ -177,41 +141,33 @@ class EpidemicSimulation:
         self.n_infected = n_infected
         self.disease_params = disease_params
         self.agent = agent
-        self.scenario = scenario if scenario is not None else BaselineScenario()
+        if scenarios is None:
+            self.scenarios = [BaselineScenario()]
+        elif isinstance(scenarios, list):
+            self.scenarios = scenarios
+        else:
+            self.scenarios = [scenarios]
         self.agents: list[Agent] = []
         self.day = 0
 
     def init(self):
         self.agents = [Agent() for _ in range(self.sim_params.n_agents)]
-
-        # Seed initial infectious agents
         for i in range(self.n_infected):
             self.agents[i].health_state = AgentHealthState.INFECTED
-
-        # Seed initial immune fraction (vaccination / pre-existing immunity)
-        immune_frac = getattr(self.scenario, "initial_immune_fraction", 0.0)
-        n_immune = int(self.sim_params.n_agents * immune_frac)
-        for j in range(self.n_infected, self.n_infected + n_immune):
-            if j < self.sim_params.n_agents:
-                self.agents[j].health_state = AgentHealthState.RECOVERED
-
-        s = sum(1 for a in self.agents if a.health_state == AgentHealthState.SUSCEPTIBLE)
-        e = sum(1 for a in self.agents if a.health_state == AgentHealthState.EXPOSED)
-        i = sum(1 for a in self.agents if a.health_state == AgentHealthState.INFECTED)
-        r = sum(1 for a in self.agents if a.health_state == AgentHealthState.RECOVERED)
-
         self.state = SimulationState(
             Agents=self.agents,
-            Scount=[s],
-            Ecount=[e],
-            Icount=[i],
-            Rcount=[r],
+            Scount=[self.sim_params.n_agents - self.n_infected],
+            Ecount=[0],
+            Icount=[self.n_infected],
+            Rcount=[0],
         )
-        self.day = 0
 
     def observe(self):
+        scenario_names = "+".join(
+            [s.__class__.__name__ for s in self.scenarios],
+        )
         fig = plt.gcf()
-        fig.set_size_inches(10, 6)
+        fig.set_size_inches(17, 6)
         plt.subplot(1, 2, 1)
         plt.cla()
         plt.scatter(
@@ -222,9 +178,7 @@ class EpidemicSimulation:
         plt.axis("image")
         plt.axis([0, 1, 0, 1])
         plt.title(
-            f"{self.scenario.__class__.__name__}, "
-            f"S{self.state.Scount[-1]}, I{self.state.Icount[-1]}, "
-            f"E{self.state.Ecount[-1]}, R{self.state.Rcount[-1]} "
+            f"{scenario_names}, S{self.state.Scount[-1]}, I{self.state.Icount[-1]}, E{self.state.Ecount[-1]}, R{self.state.Rcount[-1]} "
         )
         plt.subplot(1, 2, 2)
         plt.cla()
@@ -239,39 +193,60 @@ class EpidemicSimulation:
         plt.tight_layout()
 
     def agent_grid_cell(self, agent: Agent):
-        return (
-            int(floor(agent.position_coord[0] / self.sim_params.transmission_radius)),
-            int(floor(agent.position_coord[1] / self.sim_params.transmission_radius)),
-        )
+        return int(
+            floor(agent.position_coord[0] / self.sim_params.transmission_radius)
+        ), int(floor(agent.position_coord[1] / self.sim_params.transmission_radius))
 
     def update(self):
+
         self.day += 1
 
-        # Pull per-scenario parameter values (with sensible fallbacks).
-        # Using getattr means CombinedScenario picks up *all* the
-        # relevant fields automatically without an isinstance maze.
+        # Defaults
+        p_inf = self.disease_params.p_inf
+        p_exp = self.disease_params.p_exp
+        p_rec = self.disease_params.p_rec
+        mobility = self.agent.mobility_epsilon
         transmission_radius = self.sim_params.transmission_radius
-        if hasattr(self, "scenario") and self.scenario is not None:
-            p_inf    = getattr(self.scenario, "p_inf",    self.disease_params.p_inf)
-            p_exp    = getattr(self.scenario, "p_exp",    self.disease_params.p_exp)
-            p_rec    = getattr(self.scenario, "p_rec",    self.disease_params.p_rec)
-            mobility = getattr(self.scenario, "mobility_epsilon",
-                               self.agent.mobility_epsilon)
-        else:
-            if not hasattr(self, "disease_params"):
-                self.disease_params = DiseaseParams()
-            p_inf    = self.disease_params.p_inf
-            p_exp    = self.disease_params.p_exp
-            p_rec    = self.disease_params.p_rec
-            mobility = self.agent.mobility_epsilon
 
-        # Social-distancing radius reduction. Applies whenever the
-        # scenario carries `social_distancing_effectiveness > 0`,
-        # which covers SocialDistancingScenarioParams *and*
-        # CombinedScenario.
-        sd_eff = getattr(self.scenario, "social_distancing_effectiveness", 0.0)
-        if sd_eff > 0:
-            transmission_radius = transmission_radius * (1 - sd_eff)
+        for scenario in self.scenarios:
+
+            p_inf = getattr(scenario, "p_inf", p_inf)
+            p_exp = getattr(scenario, "p_exp", p_exp)
+            p_rec = getattr(scenario, "p_rec", p_rec)
+            mobility = getattr(scenario, "mobility_epsilon", mobility)
+
+            if isinstance(scenario, LockDownScenarioParams):
+                if self.day < scenario.lock_down_duration:
+                    mobility *= 1 - scenario.lock_down_effectiveness
+
+            # Social distancing
+            if isinstance(scenario, SocialDistancingScenarioParams):
+                transmission_radius *= 1 - scenario.social_distancing_effectiveness
+
+            # Mask wearing
+            if isinstance(scenario, MaskWearingScenarioParams):
+                p_inf *= 1 - scenario.mask_wearing_effectiveness
+
+            # Vaccination
+            if isinstance(scenario, VaccinationScenarioParams):
+                n_vaccinated = int(scenario.vaccination_rate * len(self.agents))
+
+                susceptible_indices = [
+                    i
+                    for i, a in enumerate(self.agents)
+                    if a.health_state == AgentHealthState.SUSCEPTIBLE
+                ]
+
+                if susceptible_indices:
+                    chosen = rng.choice(
+                        susceptible_indices,
+                        size=min(n_vaccinated, len(susceptible_indices)),
+                        replace=False,
+                    )
+
+                    for index in chosen:
+                        if rng.random() < scenario.vaccine_efficacy:
+                            self.agents[index].health_state = AgentHealthState.RECOVERED
 
         # Spatial binning
         bins = self.sim_params.bins_per_dimension
@@ -295,6 +270,7 @@ class EpidemicSimulation:
                             if idx_other == idx:
                                 continue
                             other = self.agents[idx_other]
+                            # Euclidean distance
                             dx = agent.position_coord[0] - other.position_coord[0]
                             dy = agent.position_coord[1] - other.position_coord[1]
                             dist = np.hypot(dx, dy)
@@ -339,7 +315,9 @@ class EpidemicSimulation:
             elif newly_recovered[i]:
                 agent.health_state = AgentHealthState.RECOVERED
 
-        s = sum(1 for a in self.agents if a.health_state == AgentHealthState.SUSCEPTIBLE)
+        s = sum(
+            1 for a in self.agents if a.health_state == AgentHealthState.SUSCEPTIBLE
+        )
         e = sum(1 for a in self.agents if a.health_state == AgentHealthState.EXPOSED)
         i = sum(1 for a in self.agents if a.health_state == AgentHealthState.INFECTED)
         r = sum(1 for a in self.agents if a.health_state == AgentHealthState.RECOVERED)
@@ -350,34 +328,34 @@ class EpidemicSimulation:
         self.state.Rcount.append(r)
 
 
-# ─────────────────────────────────────────────────────────────────
-# Entry point
-# ─────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
     if "--ga" in sys.argv:
-        import optimizer
         best_params = optimizer.EvolutionOptimizer(
             population=20, generations=15, n_agents=500, sim_days=200
         ).run()
 
         sim = EpidemicSimulation(
-            n_infected=5,
+            n_infected=10,
             sim_params=SimulationParams(
                 n_agents=500,
                 transmission_radius=best_params["transmission_radius"],
             ),
-            scenario=BaselineScenario(
-                mobility_epsilon=best_params["mobility_epsilon"],
-                p_inf=best_params["p_inf"],
-                initial_immune_fraction=best_params["immune_fraction"],
-            ),
+            scenarios=[
+                BaselineScenario(
+                    mobility_epsilon=best_params["mobility_epsilon"],
+                    p_inf=best_params["p_inf"],
+                    p_rec=best_params["p_rec"],
+                ),
+                SocialDistancingScenarioParams(),
+                LockDownScenarioParams(),
+                VaccinationScenarioParams(),
+                MaskWearingScenarioParams(),
+            ],
         )
     else:
-        # Default: run the literature-informed Combined scenario
         sim = EpidemicSimulation(
             n_infected=5,
-            scenario=CombinedScenario(),
+            scenarios=[None]
         )
 
     pycxsimulator.GUI().start(func=[sim.init, sim.observe, sim.update])

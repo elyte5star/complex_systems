@@ -6,22 +6,14 @@ from corona_epidemics import (
     BaselineScenario,
     SimulationParams,
     EpidemicSimulation,
+    SocialDistancingScenarioParams,
+    LockDownScenarioParams,
+    VaccinationScenarioParams,
+    MaskWearingScenarioParams,
 )
 
 
-# Goal: minimise peak Infectious count (peak I) on the SEIR curve.
-# This GA tunes four real-valued parameters with bounds drawn from
-# the same literature-informed ranges as Scenario 7 in the report:
-#
-#     mobility_epsilon ∈ [0.005, 0.030]
-#     transmission_radius ∈ [0.02, 0.05]
-#     p_inf            ∈ [0.05, 0.50]
-#     immune_fraction  ∈ [0.0, 0.6]
-#
-# The fourth gene replaces the previous `p_rec` lever — recovery rate
-# is a biological property of the virus (~1/10 days), not a policy
-# knob, so it is held constant at the literature value while the
-# fraction of pre-existing immune individuals is optimised instead.
+# The goal is to minimise peak infection
 class EvolutionOptimizer:
 
     def __init__(
@@ -35,7 +27,7 @@ class EvolutionOptimizer:
         n_infected: int = 5,
         n_agents: int = 500,
     ) -> None:
-        self.hyper_params = hyper_params if hyper_params is not None else TunableHyperParams()
+        self.hyper_params = hyper_params or TunableHyperParams()
         self.population = population
         self.generations = generations
         self.mutation_rate = mutation_rate
@@ -44,23 +36,33 @@ class EvolutionOptimizer:
         self.n_infected = n_infected
         self.n_agents = n_agents
 
-    def simulation(self, solutions: list[float]):
-        mobility_epsilon, transmission_radius, p_inf, immune_fraction = solutions
-        scenario = BaselineScenario(
-            mobility_epsilon=float(mobility_epsilon),
-            p_inf=float(p_inf),
-            initial_immune_fraction=float(immune_fraction),
-        )
+    def build_scenarios(self, solution: list[float]) -> list:
+        scenarios = [
+            BaselineScenario(
+                mobility_epsilon=float(solution[0]),
+                p_inf=float(solution[2]),
+                p_rec=float(solution[3]),
+            ),
+            SocialDistancingScenarioParams(),
+            LockDownScenarioParams(),
+            VaccinationScenarioParams(),
+            MaskWearingScenarioParams(),
+        ]
+        return scenarios
+
+    def simulation(self, solution: list[float]):
+        _, transmission_radius, _, _ = solution
+        scenarios = self.build_scenarios(solution)
         sim_params = SimulationParams(
-            n_agents=self.n_agents,
-            transmission_radius=float(transmission_radius),
+            n_agents=self.n_agents, transmission_radius=transmission_radius
         )
 
         sim = EpidemicSimulation(
             n_infected=self.n_infected,
             sim_params=sim_params,
-            scenario=scenario,
+            scenarios=scenarios,
         )
+
         sim.init()
 
         for day in range(self.sim_days):
@@ -74,37 +76,37 @@ class EvolutionOptimizer:
     def fitness_function(self, ga_instance, solution, solution_idx):
         sim = self.simulation(solution)
         peak_infected = max(sim.state.Icount)
-        return -float(peak_infected)  # PyGAD maximises fitness, hence the negation
+        return -float(peak_infected)  # PyGAD maximises fitness,thus the negation
 
     def on_generation(self, ga_instance):
         solution, fitness, _ = ga_instance.best_solution()
-        mobility_epsilon, transmission_radius, p_inf, immune_fraction = solution
+        mobility_epsilon, transmission_radius, p_inf, p_rec = solution
         print(
             f"Gen {ga_instance.generations_completed:>2}/{self.generations} | "
             f"peak_infected={-fitness:.0f} | "
             f"mobility={mobility_epsilon:.4f} | "
             f"radius={transmission_radius:.4f} | "
             f"p_inf={p_inf:.3f} | "
-            f"immune={immune_fraction:.3f}"
+            f"p_rec={p_rec:.3f}"
         )
 
     def run(self) -> dict:
         gene_space = [
             {
-                "low":  self.hyper_params.mobility_epsilon[0],
+                "low": self.hyper_params.mobility_epsilon[0],
                 "high": self.hyper_params.mobility_epsilon[1],
             },
             {
-                "low":  self.hyper_params.perception_ranges[0],
+                "low": self.hyper_params.perception_ranges[0],
                 "high": self.hyper_params.perception_ranges[1],
             },
             {
-                "low":  self.hyper_params.infection_probabilities[0],
+                "low": self.hyper_params.infection_probabilities[0],
                 "high": self.hyper_params.infection_probabilities[1],
             },
             {
-                "low":  self.hyper_params.immune_fractions[0],
-                "high": self.hyper_params.immune_fractions[1],
+                "low": self.hyper_params.recovery_probabilities[0],
+                "high": self.hyper_params.recovery_probabilities[1],
             },
         ]
 
@@ -129,13 +131,13 @@ class EvolutionOptimizer:
         ga.run()
 
         solution, fitness, _ = ga.best_solution()
-        mobility_epsilon, transmission_radius, p_inf, immune_fraction = solution
+        mobility_epsilon, transmission_radius, p_inf, p_rec = solution
 
         self.best_solution = {
-            "mobility_epsilon":    float(mobility_epsilon),
+            "mobility_epsilon": float(mobility_epsilon),
             "transmission_radius": float(transmission_radius),
-            "p_inf":               float(p_inf),
-            "immune_fraction":     float(immune_fraction),
-            "peak_infected":       -fitness,
+            "p_inf": float(p_inf),
+            "p_rec": float(p_rec),
+            "peak_infected": -fitness,
         }
         return self.best_solution

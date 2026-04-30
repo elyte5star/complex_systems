@@ -355,7 +355,7 @@ if __name__ == "__main__":
     else:
         sim = EpidemicSimulation(
             n_infected=5,
-            scenarios=[None]
+            scenarios=None
         )
 
     pycxsimulator.GUI().start(func=[sim.init, sim.observe, sim.update])

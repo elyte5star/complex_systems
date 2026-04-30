@@ -38,29 +38,29 @@ class BaselineScenario(DiseaseParams):
 
 class LockDownScenarioParams(BaselineScenario):
     lock_down_duration: int = 10  # duration of lock down in days
-    lock_down_effectiveness: float = 0.8  # effectiveness of lock down
+    lock_down_effectiveness: float = 0.0  # effectiveness of lock down
     mobility_epsilon: float = 0.01
 
 
 class SocialDistancingScenarioParams(BaselineScenario):
-    social_distancing_effectiveness: float = 0.5  # effectiveness of social distancing
+    social_distancing_effectiveness: float = 0.6  # effectiveness of social distancing
 
 
 class VaccinationScenarioParams(BaselineScenario):
-    vaccination_rate: float = 0.01  # percentage of population vaccinated per day
-    vaccine_efficacy: float = 0.95  # efficacy of the vaccine
+    vaccination_rate: float = 0.4  # percentage of population vaccinated per day
+    vaccine_efficacy: float = 1.0  # efficacy of the vaccine
 
 
 class MaskWearingScenarioParams(BaselineScenario):
     mask_wearing_effectiveness: float = (
-        0.5  # effectiveness of mask wearing in reducing transmission
+        0.0  # effectiveness of mask wearing in reducing transmission
     )
     p_inf: float = 0.1
 
 
 class AgentBehavior(BaseModel):
     position_coord: np.ndarray = Field(default_factory=lambda: rng.random(2))
-    mobility_epsilon: float = 0.3
+    mobility_epsilon: float = 0.03
     health_state: AgentHealthState = AgentHealthState.SUSCEPTIBLE
     velocity_vector: np.ndarray = Field(
         default_factory=lambda: rng.random(2) - np.array([0.5, 0.5])
@@ -107,7 +107,7 @@ class SimulationState(BaseModel):
 
 
 class SimulationParams(BaseModel):
-    n_agents: int = 1000  # number of agents
+    n_agents: int = 500  # number of agents
     repulsion_force: float = 0.01  # repulsion force constant
     transmission_radius: float = 0.05  # transmission radius
 
@@ -337,7 +337,7 @@ if __name__ == "__main__":
         sim = EpidemicSimulation(
             n_infected=10,
             sim_params=SimulationParams(
-                n_agents=1000,
+                n_agents=500,
                 transmission_radius=best_params["transmission_radius"],
             ),
             scenarios=[
@@ -355,7 +355,7 @@ if __name__ == "__main__":
     else:
         sim = EpidemicSimulation(
             n_infected=5,
-            scenarios=None,
+            scenarios=[LockDownScenarioParams(), MaskWearingScenarioParams(), SocialDistancingScenarioParams(), VaccinationScenarioParams()]
         )
 
     pycxsimulator.GUI().start(func=[sim.init, sim.observe, sim.update])
